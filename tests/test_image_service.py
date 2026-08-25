@@ -1,6 +1,7 @@
 import asyncio
 import base64
 from io import BytesIO
+from typing import ClassVar
 
 import pytest
 from PIL import Image
@@ -20,7 +21,7 @@ def test_openai_image_service_saves_jpeg(monkeypatch, tmp_path) -> None:
 
     class Response:
         ok = True
-        headers = {}
+        headers: ClassVar[dict[str, str]] = {}
 
         def json(self):
             return {"data": [{"b64_json": _jpeg_base64()}]}
@@ -69,7 +70,7 @@ def test_openai_image_service_retries_temporary_failure(monkeypatch, tmp_path) -
     delays = []
 
     class Response:
-        headers = {}
+        headers: ClassVar[dict[str, str]] = {}
         reason = "temporary failure"
 
         def __init__(self, ok: bool, status_code: int) -> None:
@@ -114,7 +115,7 @@ def test_openai_image_service_does_not_retry_auth_error(monkeypatch, tmp_path) -
     class Response:
         ok = False
         status_code = 401
-        headers = {}
+        headers: ClassVar[dict[str, str]] = {}
         reason = "unauthorized"
 
         def json(self):

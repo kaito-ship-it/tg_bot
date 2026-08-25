@@ -9,7 +9,6 @@ import requests
 
 from app.config import SITE_CATEGORIES
 
-
 OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses"
 ALLOWED_CATEGORY_IDS = frozenset(SITE_CATEGORIES.values())
 MAX_AI_ATTEMPTS = 3

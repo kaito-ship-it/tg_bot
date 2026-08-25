@@ -14,11 +14,10 @@ from urllib.parse import parse_qs, unquote, urljoin, urlparse
 from xml.etree import ElementTree
 
 import requests
-from PIL import Image, ImageOps
 from lxml import html as lxml_html
+from PIL import Image, ImageOps
 from pypdf import PdfReader
 from trafilatura import extract, extract_metadata, html2txt
-
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +57,7 @@ def extract_first_url(text: str) -> str | None:
     match = URL_RE.search(text)
     if not match:
         return None
-    return match.group(0).rstrip(".,;:!?)]}»\"")
+    return match.group(0).rstrip('.,;:!?)]}»"')
 
 
 def is_link_only_post(text: str, url: str) -> bool:
@@ -79,12 +78,16 @@ def _validate_public_url(url: str) -> None:
             item[4][0] for item in socket.getaddrinfo(hostname, parsed.port or 443)
         }
     except socket.gaierror as exc:
-        raise ArticleExtractionError(f"Cannot resolve article host: {hostname}") from exc
+        raise ArticleExtractionError(
+            f"Cannot resolve article host: {hostname}"
+        ) from exc
     if not addresses:
         raise ArticleExtractionError(f"Cannot resolve article host: {hostname}")
     for address in addresses:
         if not ipaddress.ip_address(address).is_global:
-            raise ArticleExtractionError("Private or reserved addresses are not allowed")
+            raise ArticleExtractionError(
+                "Private or reserved addresses are not allowed"
+            )
 
 
 def _download(
@@ -143,7 +146,9 @@ def _download(
                 response.close()
         raise ArticleExtractionError("Too many redirects")
     except requests.RequestException as exc:
-        raise ArticleExtractionError(f"Could not download {current_url}: {exc}") from exc
+        raise ArticleExtractionError(
+            f"Could not download {current_url}: {exc}"
+        ) from exc
     finally:
         session.close()
 
@@ -171,7 +176,9 @@ def parse_article_html(html: str | bytes, url: str) -> ExtractedArticle:
     if not title and text:
         title = text.splitlines()[0].strip()
     if not title or not text:
-        raise ArticleExtractionError("The page does not contain an extractable title and text")
+        raise ArticleExtractionError(
+            "The page does not contain an extractable title and text"
+        )
     return ExtractedArticle(
         url=url,
         title=title,
@@ -187,15 +194,22 @@ def _extract_semantic_html_title(html: str | bytes) -> str:
         return ""
 
     meta_candidates = document.xpath(
-        '//meta[@property="og:title"]/@content | '
-        '//meta[@name="twitter:title"]/@content'
+        '//meta[@property="og:title"]/@content | //meta[@name="twitter:title"]/@content'
     )
-    class_tokens = ("article-title", "news-title", "entry-title", "post-title", "page-title")
+    class_tokens = (
+        "article-title",
+        "news-title",
+        "entry-title",
+        "post-title",
+        "page-title",
+    )
     class_condition = " or ".join(
         f'contains(concat(" ", normalize-space(@class), " "), " {token} ")'
         for token in class_tokens
     )
-    semantic_nodes = document.xpath(f"//h1[{class_condition}] | //h2[{class_condition}]")
+    semantic_nodes = document.xpath(
+        f"//h1[{class_condition}] | //h2[{class_condition}]"
+    )
     semantic_candidates = [" ".join(node.itertext()) for node in semantic_nodes]
 
     for candidate in [*meta_candidates, *semantic_candidates]:
@@ -218,7 +232,13 @@ def _extract_docx_text(document_bytes: bytes) -> str:
                 raise ArticleExtractionError("DOCX document XML is too large")
             xml_bytes = archive.read(info)
         root = ElementTree.fromstring(xml_bytes)
-    except (KeyError, OSError, ValueError, zipfile.BadZipFile, ElementTree.ParseError) as exc:
+    except (
+        KeyError,
+        OSError,
+        ValueError,
+        zipfile.BadZipFile,
+        ElementTree.ParseError,
+    ) as exc:
         raise ArticleExtractionError("The DOCX file could not be decoded") from exc
 
     namespace = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -287,7 +307,9 @@ def parse_gov_document_payload(
 ) -> ExtractedArticle:
     title = str(payload.get("title") or "").strip()
     content_html = str(payload.get("content") or "").strip()
-    content_text = _normalize_document_text(html2txt(content_html)) if content_html else ""
+    content_text = (
+        _normalize_document_text(html2txt(content_html)) if content_html else ""
+    )
     text = _normalize_document_text(document_text) or content_text or title
     if not title or not text:
         raise ArticleExtractionError("The gov.kz document has no title or text")
@@ -343,7 +365,9 @@ def _fetch_gov_document_sync(url: str, api_url: str, lang: str) -> ExtractedArti
                 ).text
                 break
             except ArticleExtractionError as exc:
-                logger.warning("Could not extract gov.kz attachment %s: %s", file_url, exc)
+                logger.warning(
+                    "Could not extract gov.kz attachment %s: %s", file_url, exc
+                )
 
     return parse_gov_document_payload(payload, url, document_text)
 
@@ -355,7 +379,7 @@ def _fetch_article_sync(url: str) -> ExtractedArticle:
 
     content_bytes, content_type, final_url = _download(
         url,
-        expected_content_prefix=("text/html",) + DOCUMENT_CONTENT_TYPES,
+        expected_content_prefix=("text/html", *DOCUMENT_CONTENT_TYPES),
         max_bytes=MAX_DOCUMENT_BYTES,
     )
     if content_type.startswith("text/html"):

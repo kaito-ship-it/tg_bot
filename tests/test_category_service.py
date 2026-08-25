@@ -1,4 +1,5 @@
 import asyncio
+from typing import ClassVar
 
 from app import category_service
 from app.category_service import OpenAICategoryClassifier
@@ -9,7 +10,7 @@ def test_openai_category_classifier_parses_allowed_id(monkeypatch) -> None:
 
     class Response:
         ok = True
-        headers = {}
+        headers: ClassVar[dict[str, str]] = {}
 
         def json(self):
             return {
@@ -50,7 +51,7 @@ def test_openai_category_classifier_retries_rate_limit(monkeypatch) -> None:
     delays = []
 
     class Response:
-        headers = {}
+        headers: ClassVar[dict[str, str]] = {}
         reason = "rate limited"
 
         def __init__(self, ok: bool, status_code: int) -> None:

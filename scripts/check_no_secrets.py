@@ -4,7 +4,6 @@ import re
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SKIP_DIRS = {
     ".git",
@@ -25,9 +24,7 @@ SECRET_PATTERNS = {
     "Telegram bot token": re.compile(r"\b\d{8,12}:[A-Za-z0-9_-]{30,}\b"),
     "OpenAI API key": re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b"),
     "Telegram API hash": re.compile(r"(?m)^TG_API_HASH=[a-fA-F0-9]{32}\s*$"),
-    "backend API token": re.compile(
-        r"(?m)^NEWS_BOT_API_TOKEN=[a-fA-F0-9]{32,}\s*$"
-    ),
+    "backend API token": re.compile(r"(?m)^NEWS_BOT_API_TOKEN=[a-fA-F0-9]{32,}\s*$"),
     "personal Windows path": re.compile(r"[A-Za-z]:\\Users\\[^\\\s]+\\"),
 }
 

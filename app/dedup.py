@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-
 TRACKING_QUERY_NAMES = frozenset(
     {
         "fbclid",
@@ -35,7 +34,9 @@ def normalize_source_url(url: str | None) -> str | None:
     except ValueError:
         return None
 
-    if port and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443)):
+    if port and not (
+        (scheme == "http" and port == 80) or (scheme == "https" and port == 443)
+    ):
         netloc = f"{hostname}:{port}"
     else:
         netloc = hostname

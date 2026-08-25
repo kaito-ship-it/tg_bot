@@ -11,7 +11,6 @@ from pathlib import Path
 import requests
 from PIL import Image, ImageOps
 
-
 OPENAI_IMAGE_ENDPOINT = "https://api.openai.com/v1/images/generations"
 MAX_AI_ATTEMPTS = 3
 logger = logging.getLogger(__name__)
@@ -123,15 +122,11 @@ class OpenAIImageService:
             temporary.replace(target)
         except (OSError, ValueError) as exc:
             temporary.unlink(missing_ok=True)
-            raise ImageGenerationError(
-                "OpenAI returned an unreadable image"
-            ) from exc
+            raise ImageGenerationError("OpenAI returned an unreadable image") from exc
 
         return target.name
 
-    def _request_image(
-        self, *, title: str, news_text: str, regenerate: bool
-    ) -> bytes:
+    def _request_image(self, *, title: str, news_text: str, regenerate: bool) -> bytes:
         try:
             response = requests.post(
                 OPENAI_IMAGE_ENDPOINT,
@@ -141,9 +136,7 @@ class OpenAIImageService:
                 },
                 json={
                     "model": self.model,
-                    "prompt": _make_prompt(
-                        title, news_text, regenerate=regenerate
-                    ),
+                    "prompt": _make_prompt(title, news_text, regenerate=regenerate),
                     "n": 1,
                     "size": self.size,
                     "quality": self.quality,

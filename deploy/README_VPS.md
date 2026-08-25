@@ -1,153 +1,55 @@
-# Развёртывание tg2site на Ubuntu VPS
+# VPS-чеклист tg2site
 
-Продакшен-схема: Telegram webhook → FastAPI/SQLite → выбор категории в
-служебном чате → защищённый Laravel API. Playwright и Tampermonkey не нужны.
+## До запуска
 
-## 1. Требования
+- [ ] Репозиторий клонирован в `/opt/tg2site` от пользователя `tg2site`.
+- [ ] `/var/lib/tg2site` принадлежит `tg2site:tg2site`.
+- [ ] Установлены зависимости из `requirements.txt`.
+- [ ] `.env` создан из `.env.production.example` и имеет права `600`.
+- [ ] Бот, канал, чат и API-токен принадлежат организации.
+- [ ] Бот является администратором исходного канала и может писать в чат редакторов.
+- [ ] `TG_ADMIN_USER_IDS` содержит только разрешённых редакторов.
+- [ ] `TG_WEBHOOK_SECRET` и `MEDIA_SIGNING_SECRET` разные и случайные.
+- [ ] Все внешние URL используют HTTPS.
+- [ ] `python -m scripts.check_config` завершается успешно.
+- [ ] `nginx -t` завершается успешно.
 
-- Ubuntu 22.04/24.04, Python 3.11+;
-- 1–2 vCPU, 1 GB RAM (2 GB рекомендуется для генерации изображений);
-- HTTPS-сайт `dev.nedra.kz` и возможность добавить location в nginx;
-- отдельный системный пользователь `tg2site`.
-
-```bash
-sudo useradd --system --create-home --home-dir /opt/tg2site --shell /bin/bash tg2site
-sudo mkdir -p /opt/tg2site /var/lib/tg2site
-sudo chown -R tg2site:tg2site /opt/tg2site /var/lib/tg2site
-```
-
-Скопируйте проект в `/opt/tg2site`, не копируя `.env`, `.venv`, `data`,
-`__pycache__` и локальные `*.session`.
-
-```bash
-sudo -u tg2site python3 -m venv /opt/tg2site/.venv
-sudo -u tg2site /opt/tg2site/.venv/bin/python -m pip install --upgrade pip
-sudo -u tg2site /opt/tg2site/.venv/bin/python -m pip install \
-  -r /opt/tg2site/requirements.txt
-```
-
-## 2. Настройки
-
-Создайте `/opt/tg2site/.env` из `.env.production.example`. Секретные значения
-создавайте или передавайте только через защищённый канал и добавляйте напрямую
-на сервер — не коммитьте их в Git и не присылайте в обычном чате.
-
-```dotenv
-DATA_DIR=/var/lib/tg2site
-
-TELEGRAM_INGEST_MODE=webhook
-TELEGRAM_CHANNEL=@имя_канала
-TG_CHANNEL_ID=<числовой_id_канала>
-TG_ADMIN_USER_IDS=<telegram_user_id_редактора>
-TG_WEBHOOK_SECRET=<случайный_секрет>
-TELEGRAM_WEBHOOK_ENFORCE_IPS=true
-BOT_TOKEN=<bot_token>
-NOTIFY_CHAT_ID=<id_служебной_группы>
-
-PUBLISH_MODE=backend_api
-NEWS_BOT_API_BASE=https://dev.nedra.kz/api/internal
-NEWS_BOT_API_TOKEN=<выданный_backend_токен>
-
-API_HOST=127.0.0.1
-API_PORT=8081
-PUBLIC_API_BASE=https://dev.nedra.kz/tg
-
-IMAGE_FALLBACK_MODE=openai
-OPENAI_API_KEY=<openai_key>
-CATEGORY_CLASSIFIER_MODE=openai
-```
-
-`TG_API_ID`, `TG_API_HASH` и файлы `*.session` на VPS не нужны: webhook работает
-от служебного бота, а не от личного Telegram-аккаунта. Желательно, чтобы бот и
-служебный чат принадлежали организации. Не копируйте на сервер локальные `.env`,
-`data/`, `.venv`, `.pytest_cache` и `__pycache__`.
-
-Защитите файл:
-
-```bash
-sudo chown tg2site:tg2site /opt/tg2site/.env
-sudo chmod 600 /opt/tg2site/.env
-```
-
-## 3. nginx
-
-Добавьте содержимое `deploy/nginx-tg2site.conf` внутрь HTTPS server-блока
-`dev.nedra.kz`, затем:
-
-```bash
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-`X-Real-IP` обязателен: приложение проверяет Telegram IP после того, как nginx
-заменил этот заголовок реальным адресом клиента.
-
-## 4. systemd
+## Запуск
 
 ```bash
 sudo cp /opt/tg2site/deploy/tg2site.service /etc/systemd/system/tg2site.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now tg2site
-sudo systemctl status tg2site
-curl http://127.0.0.1:8081/health
-curl https://dev.nedra.kz/tg/health
+curl --fail http://127.0.0.1:8081/health
+curl --fail https://dev.nedra.kz/tg/health
+sudo -u tg2site /opt/tg2site/.venv/bin/python -m scripts.set_webhook --drop-pending
 ```
 
-Внешний health должен вернуть `status: ok` и состояние `moderation_queue`.
+## Приёмка
 
-## 5. Регистрация Telegram webhook
+- [ ] Пост из заданного канала появляется в очереди.
+- [ ] Пост из другого канала игнорируется.
+- [ ] Пост без внешней ссылки игнорируется.
+- [ ] Неавторизованный пользователь не может нажать категорию.
+- [ ] Авторизованный редактор публикует новость один раз.
+- [ ] Изображение доступно backend по подписанному URL.
+- [ ] Серия из пяти постов обрабатывается последовательно.
+- [ ] После `systemctl restart tg2site` незавершённая очередь сохраняется.
+- [ ] В `journalctl` отсутствуют секреты и полные Telegram Bot API URL.
 
-Выполните на VPS после успешной проверки HTTPS. Значения читаются из `.env` и
-не должны попадать в историю команд в открытом виде.
+## Эксплуатация
 
 ```bash
-cd /opt/tg2site
-set -a
-source .env
-set +a
-
-curl -sS -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" \
-  -H 'Content-Type: application/json' \
-  --data "{\"url\":\"https://dev.nedra.kz/tg/webhook\",\"secret_token\":\"${TG_WEBHOOK_SECRET}\",\"allowed_updates\":[\"channel_post\",\"callback_query\"],\"drop_pending_updates\":true,\"max_connections\":20}"
-
-curl -sS "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo"
+sudo systemctl status tg2site --no-pager
+sudo journalctl -u tg2site -n 200 --no-pager
+sudo du -sh /var/lib/tg2site
 ```
 
-`drop_pending_updates=true` используйте только при первой настройке. При
-повторной регистрации ставьте `false`, иначе Telegram удалит ожидающие события.
-Проверьте отсутствие `last_error_message` и значение `pending_update_count`.
+Настройте:
 
-После установки webhook нельзя параллельно запускать `getUpdates` для того же
-бота. На VPS должен быть включён именно `TELEGRAM_INGEST_MODE=webhook`.
+- ежедневную резервную копию `/var/lib/tg2site`;
+- мониторинг `https://dev.nedra.kz/tg/health`;
+- оповещение при перезапусках `tg2site.service`;
+- регулярную установку проверенных Dependabot-обновлений.
 
-## 6. Проверка
-
-Сначала используйте тестовый канал:
-
-1. опубликуйте пост с одной ссылкой на статью;
-2. проверьте появление сообщения с категориями в служебном чате;
-3. нажмите категорию;
-4. убедитесь, что новость появилась на сайте ровно один раз;
-5. проверьте текст, источник и изображение;
-6. повторно отправьте тот же webhook и убедитесь, что дубль не появился.
-
-Логи и SQLite:
-
-```bash
-sudo journalctl -u tg2site -f
-sudo ls -lh /var/lib/tg2site/state.db
-```
-
-Backend использует `external_id=tg:<channel_id>:<message_id>`, поэтому повтор
-после сетевого таймаута безопасен. Сделайте ежедневный backup
-`/var/lib/tg2site`; там находятся SQLite, черновики и фотографии.
-
-## 7. Обновление
-
-```bash
-sudo systemctl stop tg2site
-sudo -u tg2site /opt/tg2site/.venv/bin/python -m pip install \
-  -r /opt/tg2site/requirements.txt
-sudo systemctl start tg2site
-sudo journalctl -u tg2site -n 100 --no-pager
-```
+Полная инструкция установки и обновления находится в корневом `README.md`.

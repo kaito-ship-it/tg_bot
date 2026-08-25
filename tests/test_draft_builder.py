@@ -1,7 +1,8 @@
 import asyncio
+from pathlib import Path
 
-from app.article_service import ExtractedArticle
 from app import draft_builder
+from app.article_service import ExtractedArticle
 from app.draft_builder import (
     build_draft,
     clean_text_for_editor,
@@ -25,8 +26,7 @@ class Message:
 class Client:
     async def download_media(self, message, file: str):
         del message
-        with open(file, "wb") as output:
-            output.write(b"jpeg")
+        await asyncio.to_thread(Path(file).write_bytes, b"jpeg")
         return file
 
 
@@ -88,9 +88,10 @@ def test_clean_text_removes_duplicate_title_and_trailing_promotions() -> None:
     Подписывайтесь на наш Telegram-канал
     https://t.me/example
     """
-    assert clean_text_for_editor(
-        text, "Новое месторождение открыли в Казахстане"
-    ) == "Геологи завершили исследование участка и подтвердили запасы сырья."
+    assert (
+        clean_text_for_editor(text, "Новое месторождение открыли в Казахстане")
+        == "Геологи завершили исследование участка и подтвердили запасы сырья."
+    )
 
 
 def test_clean_text_preserves_embedded_links_and_nonduplicate_lead() -> None:

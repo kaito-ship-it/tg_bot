@@ -1,5 +1,12 @@
+import pytest
+import requests
+
 from app.models import NewsDraft
-from app.notifier import REGENERATE_PHOTO_PREFIX, TelegramNotifier
+from app.notifier import (
+    REGENERATE_PHOTO_PREFIX,
+    TelegramNotificationError,
+    TelegramNotifier,
+)
 
 
 def _draft(*, generated: bool) -> NewsDraft:
@@ -16,12 +23,8 @@ def _draft(*, generated: bool) -> NewsDraft:
 
 
 def test_regenerate_button_is_shown_only_for_ai_photo() -> None:
-    generated_keyboard = TelegramNotifier._draft_keyboard(
-        _draft(generated=True), "https://example.com/draft"
-    )
-    source_keyboard = TelegramNotifier._draft_keyboard(
-        _draft(generated=False), "https://example.com/draft"
-    )
+    generated_keyboard = TelegramNotifier._draft_keyboard(_draft(generated=True))
+    source_keyboard = TelegramNotifier._draft_keyboard(_draft(generated=False))
 
     generated_rows = generated_keyboard["inline_keyboard"]
     source_rows = source_keyboard["inline_keyboard"]
@@ -30,3 +33,21 @@ def test_regenerate_button_is_shown_only_for_ai_photo() -> None:
         f"{REGENERATE_PHOTO_PREFIX}{'a' * 32}"
     )
     assert len(source_rows) == 1
+
+
+def test_request_error_does_not_expose_bot_token(monkeypatch) -> None:
+    token = "123456:very-secret-bot-token"
+    notifier = TelegramNotifier(token, "-1001")
+
+    def fail(*args, **kwargs):
+        del args, kwargs
+        raise requests.RequestException(
+            f"request failed at https://api.telegram.org/bot{token}/sendMessage"
+        )
+
+    monkeypatch.setattr("app.notifier.requests.post", fail)
+
+    with pytest.raises(TelegramNotificationError) as caught:
+        notifier._post("sendMessage", {"chat_id": "-1001"})
+
+    assert token not in str(caught.value)

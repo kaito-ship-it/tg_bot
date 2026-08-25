@@ -1,97 +1,94 @@
-# tg2site — публикация новостей из Telegram на nedra.kz
+# tg2site
 
-Сервис принимает публикации Telegram-канала через webhook, извлекает ссылку на
-статью, подготавливает новость и после выбора категории редактором публикует её
-через защищённый backend API nedra.kz.
+Production-сервис для публикации новостей из Telegram на nedra.kz.
 
 ```text
-Telegram-канал
-      ↓ channel_post
-Telegram Bot API webhook
-      ↓
-FastAPI + SQLite
-      ↓
-Выбор категории в служебном Telegram-чате
-      ↓
-Laravel backend API
-      ↓
-Новость на nedra.kz
+Telegram channel_post
+        ↓ HTTPS webhook
+FastAPI → SQLite queue → разбор статьи
+        ↓
+Закрытый Telegram-чат редакторов
+        ↓ выбор категории
+Laravel backend API → сайт
 ```
+
+Сервис работает только через Telegram Bot API webhook и backend API сайта.
+Личные Telegram-аккаунты, пользовательские сессии и доступ к браузеру не
+используются.
 
 ## Возможности
 
-- приём постов через HTTPS webhook служебного Telegram-бота;
-- обработка только заданного канала;
-- извлечение первой внешней ссылки из поста;
-- парсинг заголовка, основного текста и изображения статьи;
-- поддержка HTML-страниц, документов gov.kz, PDF и DOCX;
-- очистка текста без пересказа и изменения фактов;
-- получение категорий с backend API;
-- выбор категории, отклонение новости и обновление AI-фото кнопками в Telegram;
-- публикация через `POST /api/internal/news`;
-- защита от дублей по `external_id`;
-- постоянная SQLite-очередь для серии из нескольких постов;
-- автоматические повторы временных ошибок backend и AI API;
-- endpoint состояния `/health`.
-
-Пост должен содержать внешнюю ссылку на статью. Посты без ссылки и
-неподдерживаемые вложения игнорируются.
-
-## Как работает публикация
-
-1. В исходном канале публикуется пост со ссылкой.
-2. Telegram отправляет `channel_post` на `/tg/webhook`.
-3. Сервис проверяет секрет webhook и ID канала.
-4. Ссылка сохраняется в SQLite-очередь.
-5. Сервис загружает статью и формирует черновик.
-6. Если фото отсутствует и включён AI fallback, создаётся обложка.
-7. В служебный чат приходит карточка новости с категориями.
-8. Редактор выбирает категорию или отклоняет материал.
-9. Новость отправляется в защищённый backend API.
-10. Backend возвращает ID и URL публикации, после чего сообщение Telegram
-    обновляется до состояния «Опубликовано».
+- принимает публикации только от настроенного канала;
+- требует внешнюю ссылку на новость;
+- извлекает заголовок, текст и изображение из HTML, PDF и DOCX;
+- использует прикреплённое к Telegram-посту фото в приоритетном порядке;
+- фильтрует локальные адреса, редиректы и слишком большие ответы;
+- сохраняет задания в SQLite и последовательно обрабатывает серии публикаций;
+- показывает категории backend в закрытом Telegram-чате;
+- разрешает кнопки только пользователям из `TG_ADMIN_USER_IDS`;
+- генерирует изображение через OpenAI, если это явно включено;
+- позволяет перегенерировать AI-изображение до публикации;
+- отправляет новость в идемпотентный backend endpoint;
+- выдаёт локальные изображения backend по подписанным ссылкам;
+- повторяет временные ошибки разбора и backend-запросов;
+- автоматически очищает устаревшие черновики и записи очереди.
 
 ## Требования
 
-- Ubuntu 22.04/24.04 и Python 3.11+;
-- 1–2 vCPU, минимум 1 GB RAM;
-- HTTPS-домен и nginx;
+- Ubuntu 22.04/24.04;
+- Python 3.11 или новее;
+- nginx и действующий HTTPS-домен;
+- 1–2 vCPU и 1 GB RAM;
 - служебный Telegram-бот;
-- исходный канал и закрытый служебный чат редакторов;
-- backend API token nedra.kz;
-- OpenAI API key только при использовании AI-функций.
+- закрытая Telegram-группа редакторов;
+- токен внутреннего API nedra.kz.
 
-Для продакшена не нужны номер телефона, личная Telegram-сессия, `TG_API_ID` или
-`TG_API_HASH`.
+Бот должен быть добавлен администратором исходного канала и участником
+закрытой группы редакторов с возможностью отправлять и редактировать сообщения.
 
-## Основные файлы
+## Быстрый запуск тестов
 
-- `app/main.py` — запуск FastAPI и worker;
-- `app/api.py` — health и webhook endpoints;
-- `app/webhook_service.py` — очередь и Telegram-кнопки;
-- `app/article_service.py` — загрузка и разбор статей;
-- `app/draft_builder.py` — формирование черновика;
-- `app/backend.py` — интеграция с Laravel API;
-- `app/moderation_db.py` — постоянная SQLite-очередь;
-- `app/image_service.py` — AI-обложки;
-- `deploy/` — nginx, systemd и инструкция VPS;
-- `.env.production.example` — шаблон настроек сервера.
+Linux/macOS:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python scripts/check_no_secrets.py
+.venv/bin/python -m compileall -q app scripts
+.venv/bin/ruff check app scripts tests
+.venv/bin/ruff format --check app scripts tests
+.venv/bin/python -m pytest
+.venv/bin/python -m pip check
+```
+
+Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe scripts\check_no_secrets.py
+.\.venv\Scripts\python.exe -m compileall -q app scripts
+.\.venv\Scripts\ruff.exe check app scripts tests
+.\.venv\Scripts\ruff.exe format --check app scripts tests
+.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m pip check
+```
 
 ## Установка на VPS
 
-### 1. Пользователь и каталоги
+### 1. Подготовить систему
 
 ```bash
-sudo useradd --system --create-home \
-  --home-dir /opt/tg2site --shell /bin/bash tg2site
+sudo apt update
+sudo apt install -y git nginx python3 python3-venv
+sudo useradd --system --create-home --home-dir /opt/tg2site --shell /bin/bash tg2site
 sudo mkdir -p /opt/tg2site /var/lib/tg2site
 sudo chown -R tg2site:tg2site /opt/tg2site /var/lib/tg2site
 ```
 
-Клонируйте проект в `/opt/tg2site`. Не переносите локальные `.env`, `.venv`,
-`data`, `*.session`, кэши и логи.
-
-### 2. Python и зависимости
+Клонируйте приватный репозиторий в `/opt/tg2site` с помощью deploy key или
+другого репозиторного credential организации. Не копируйте локальные `.env`,
+`data`, `.venv`, кэши и логи.
 
 ```bash
 sudo -u tg2site python3 -m venv /opt/tg2site/.venv
@@ -100,187 +97,146 @@ sudo -u tg2site /opt/tg2site/.venv/bin/python -m pip install \
   -r /opt/tg2site/requirements.txt
 ```
 
-### 3. Настройки
+### 2. Настроить окружение
 
 ```bash
-sudo -u tg2site cp \
-  /opt/tg2site/.env.production.example /opt/tg2site/.env
+sudo -u tg2site cp /opt/tg2site/.env.production.example /opt/tg2site/.env
 sudo -u tg2site nano /opt/tg2site/.env
+sudo chmod 600 /opt/tg2site/.env
 ```
 
-Минимальная конфигурация:
+Создайте два разных секрета — для webhook и подписанных изображений:
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Обязательные значения:
 
 ```dotenv
-DATA_DIR=/var/lib/tg2site
-
-TELEGRAM_INGEST_MODE=webhook
-TELEGRAM_CHANNEL=@your_channel
 TG_CHANNEL_ID=-1000000000000
 TG_ADMIN_USER_IDS=111111111,222222222
-TG_WEBHOOK_SECRET=replace_with_a_long_random_secret
-TELEGRAM_WEBHOOK_ENFORCE_IPS=true
-BOT_TOKEN=replace_with_service_bot_token
+BOT_TOKEN=<organization_bot_token>
 NOTIFY_CHAT_ID=-1000000000001
+TG_WEBHOOK_SECRET=<first_random_secret>
+TELEGRAM_WEBHOOK_ENFORCE_IPS=true
 
-PUBLISH_MODE=backend_api
 NEWS_BOT_API_BASE=https://dev.nedra.kz/api/internal
-NEWS_BOT_API_TOKEN=replace_with_backend_token
+NEWS_BOT_API_TOKEN=<backend_token>
+ADMIN_BASE_URL=https://dev.nedra.kz/admin/news
 
 API_HOST=127.0.0.1
 API_PORT=8081
 PUBLIC_API_BASE=https://dev.nedra.kz/tg
-CORS_ORIGINS=https://dev.nedra.kz
-
-IMAGE_FALLBACK_MODE=disabled
-CATEGORY_CLASSIFIER_MODE=disabled
+MEDIA_SIGNING_SECRET=<second_random_secret>
+DATA_DIR=/var/lib/tg2site
+ALLOW_INSECURE_HTTP=false
 ```
 
-Создать webhook secret:
+Проверьте настройки до запуска:
 
 ```bash
-python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+cd /opt/tg2site
+sudo -u tg2site /opt/tg2site/.venv/bin/python -m scripts.check_config
 ```
 
-Защитить `.env`:
+### 3. Подключить nginx
 
-```bash
-sudo chown tg2site:tg2site /opt/tg2site/.env
-sudo chmod 600 /opt/tg2site/.env
-```
-
-## Backend API
-
-Сервис использует два endpoint относительно `NEWS_BOT_API_BASE`:
-
-```http
-GET /news-categories
-Authorization: Bearer <NEWS_BOT_API_TOKEN>
-Accept: application/json
-```
-
-```http
-POST /news
-Authorization: Bearer <NEWS_BOT_API_TOKEN>
-Content-Type: application/json
-Accept: application/json
-```
-
-В публикацию передаются `external_id`, `category_id`, `title`, `lead`,
-`content_html`, `source_url`, `source_name`, `image_url` и `status=published`.
-
-`external_id` имеет формат `tg:<channel_id>:<message_id>`. Backend должен
-обеспечивать идемпотентность по этому значению, чтобы повтор после таймаута не
-создавал дубль.
-
-## nginx
-
-Добавьте `deploy/nginx-tg2site.conf` в HTTPS server-блок:
+В HTTPS `server`-блок домена добавьте:
 
 ```nginx
-location /tg/ {
-    proxy_pass http://127.0.0.1:8081/;
-    proxy_set_header Host              $host;
-    proxy_set_header X-Real-IP         $remote_addr;
-    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_read_timeout 60s;
-    client_max_body_size 2m;
-}
+include /opt/tg2site/deploy/nginx-tg2site.conf;
 ```
+
+Затем:
 
 ```bash
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-`X-Real-IP` обязателен при включённой проверке IP Telegram.
+Конфигурация открывает только `/tg/webhook`, `/tg/health` и
+`/tg/photo/<draft_id>`. Сам FastAPI слушает только `127.0.0.1`.
 
-## systemd
+### 4. Запустить systemd
 
 ```bash
-sudo cp /opt/tg2site/deploy/tg2site.service \
-  /etc/systemd/system/tg2site.service
+sudo cp /opt/tg2site/deploy/tg2site.service /etc/systemd/system/tg2site.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now tg2site
-sudo systemctl status tg2site
+sudo systemctl status tg2site --no-pager
+curl --fail http://127.0.0.1:8081/health
+curl --fail https://dev.nedra.kz/tg/health
 ```
 
-Проверка:
+### 5. Зарегистрировать Telegram webhook
 
-```bash
-curl http://127.0.0.1:8081/health
-curl https://dev.nedra.kz/tg/health
-```
-
-Ответ должен содержать `status: ok` и `moderation_queue`.
-
-## Регистрация Telegram webhook
+Скрипт читает токен из `.env` и не помещает его в командную строку:
 
 ```bash
 cd /opt/tg2site
-set -a
-source .env
-set +a
-
-curl -sS -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" \
-  -H 'Content-Type: application/json' \
-  --data "{\"url\":\"https://dev.nedra.kz/tg/webhook\",\"secret_token\":\"${TG_WEBHOOK_SECRET}\",\"allowed_updates\":[\"channel_post\",\"callback_query\"],\"drop_pending_updates\":true,\"max_connections\":20}"
-
-curl -sS "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo"
+sudo -u tg2site /opt/tg2site/.venv/bin/python -m scripts.set_webhook --drop-pending
 ```
 
-`drop_pending_updates=true` используйте только при первой регистрации. При
-повторной настройке установите `false`.
+`--drop-pending` применяйте только при первой установке. При последующих
+регистрациях запускайте команду без этого флага.
 
-## AI-обложки и категория
+## Контракт backend API
 
-AI-функции по умолчанию выключены. Для генерации изображения при отсутствии
-фото:
+Относительно `NEWS_BOT_API_BASE` используются:
+
+```http
+GET /news-categories
+Authorization: Bearer <NEWS_BOT_API_TOKEN>
+```
+
+```http
+POST /news
+Authorization: Bearer <NEWS_BOT_API_TOKEN>
+Content-Type: application/json
+```
+
+Публикация содержит `external_id`, `category_id`, `title`, `lead`,
+`content_html`, `source_url`, `source_name`, `image_url` и `status`.
+
+Backend обязан обеспечивать уникальность `external_id`. Значение имеет формат
+`tg:<channel_id>:<message_id>` и предотвращает дубль при повторе после сетевого
+таймаута.
+
+## AI-функции
+
+По умолчанию AI выключен. Для обложек и классификации:
 
 ```dotenv
 IMAGE_FALLBACK_MODE=openai
-OPENAI_API_KEY=replace_with_new_server_key
+CATEGORY_CLASSIFIER_MODE=openai
+OPENAI_API_KEY=<server_key>
 OPENAI_IMAGE_MODEL=gpt-image-1-mini
 OPENAI_IMAGE_QUALITY=medium
 OPENAI_IMAGE_SIZE=1536x1024
-```
-
-Для AI-классификации при неоднозначном результате:
-
-```dotenv
-CATEGORY_CLASSIFIER_MODE=openai
 OPENAI_TEXT_MODEL=gpt-5.4-nano
 ```
 
-Редактор может обновить сгенерированную обложку до выбора категории.
-`PUBLIC_API_BASE` должен быть публичным HTTPS-адресом `/tg`, иначе backend не
-сможет скачать подготовленное изображение.
+OpenAI key должен принадлежать серверному проекту организации. Не переносите
+личный ключ из локальной разработки.
 
 ## Проверка полного сценария
 
-1. Опубликуйте в тестовом канале пост с одной внешней ссылкой.
-2. Проверьте карточку новости в служебном чате.
-3. При необходимости обновите AI-обложку.
-4. Выберите категорию.
-5. Убедитесь, что сообщение изменилось на «Опубликовано».
-6. Проверьте заголовок, текст, источник и изображение на сайте.
-7. Отправьте 3–5 ссылок подряд и проверьте последовательную обработку.
+1. Опубликуйте в тестовом канале пост с внешней HTTPS-ссылкой.
+2. Убедитесь, что карточка появилась в закрытом чате.
+3. При необходимости обновите AI-изображение.
+4. Выберите категорию разрешённым аккаунтом.
+5. Проверьте, что новость появилась на сайте ровно один раз.
+6. Отправьте 3–5 ссылок подряд и проверьте их последовательную обработку.
+7. Нажмите кнопку с аккаунта, которого нет в `TG_ADMIN_USER_IDS`: публикация
+   должна быть запрещена.
 
-Логи и SQLite:
+Логи:
 
 ```bash
+sudo journalctl -u tg2site -n 200 --no-pager
 sudo journalctl -u tg2site -f
-sudo ls -lh /var/lib/tg2site/state.db
-```
-
-## Тесты
-
-```bash
-python -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python -m pip install -r requirements-dev.txt
-.venv/bin/python scripts/check_no_secrets.py
-.venv/bin/python -m pytest
 ```
 
 ## Обновление
@@ -291,20 +247,23 @@ cd /opt/tg2site
 sudo -u tg2site git pull --ff-only
 sudo -u tg2site /opt/tg2site/.venv/bin/python -m pip install \
   -r /opt/tg2site/requirements.txt
+sudo -u tg2site /opt/tg2site/.venv/bin/python -m scripts.check_config
 sudo systemctl start tg2site
-sudo journalctl -u tg2site -n 100 --no-pager
+sudo systemctl status tg2site --no-pager
 ```
 
-## Безопасность
+## Данные и резервные копии
 
-- используйте служебного бота и чат организации;
-- не храните секреты в Git и README;
-- ограничьте редакторов через `TG_ADMIN_USER_IDS`;
-- используйте случайный `TG_WEBHOOK_SECRET`;
-- оставляйте `TELEGRAM_WEBHOOK_ENFORCE_IPS=true`;
-- храните `.env` с правами `600`;
-- создавайте backup `/var/lib/tg2site`;
-- перед push запускайте `python scripts/check_no_secrets.py`.
+`/var/lib/tg2site` содержит SQLite, черновики и изображения. Для простой
+согласованной резервной копии остановите сервис на несколько секунд:
 
-Дополнительные детали находятся в
-[`deploy/README_VPS.md`](deploy/README_VPS.md).
+```bash
+sudo systemctl stop tg2site
+sudo tar -C /var/lib -czf /var/backups/tg2site-$(date +%F-%H%M).tar.gz tg2site
+sudo systemctl start tg2site
+```
+
+Не коммитьте `.env` и содержимое `data/`. Перед каждым push запускайте
+`python scripts/check_no_secrets.py`.
+
+Расширенный VPS-чеклист: [`deploy/README_VPS.md`](deploy/README_VPS.md).

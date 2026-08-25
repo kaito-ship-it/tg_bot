@@ -1,4 +1,14 @@
 [tool.pytest.ini_options]
+minversion = "8.4"
+addopts = "-ra --strict-config --strict-markers"
 testpaths = ["tests"]
 pythonpath = ["."]
+filterwarnings = ["error"]
 
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "SIM", "RUF", "ASYNC"]
+ignore = ["RUF001", "RUF003"]

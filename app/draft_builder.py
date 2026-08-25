@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections.abc import Sequence
@@ -20,7 +21,6 @@ from app.dedup import normalize_source_url
 from app.image_service import ImageGenerationError
 from app.models import NewsDraft
 from app.text_cleaner import clean_news_text
-
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +52,7 @@ def match_category_id(text: str) -> int | None:
         normalized_keyword = keyword.casefold()
         if normalized_keyword in {"ии", "it"}:
             return bool(
-                re.search(
-                    rf"(?<!\w){re.escape(normalized_keyword)}(?!\w)", normalized
-                )
+                re.search(rf"(?<!\w){re.escape(normalized_keyword)}(?!\w)", normalized)
             )
         return normalized_keyword in normalized
 
@@ -72,8 +70,8 @@ def guess_category_id(text: str) -> int:
     matched = match_category_id(text)
     if matched is not None:
         return matched
-    # The publishing form requires a category. Nedropользование is the site's
-    # main section and remains manually editable before the author clicks Create.
+    # The backend requires a category; the editor can change this fallback
+    # before publication.
     return DEFAULT_CATEGORY_ID
 
 
@@ -93,7 +91,7 @@ def extract_album_text(messages: Sequence[Any]) -> str:
 async def _download_first_photo(
     messages: Sequence[Any], client: Any, photos_dir: Path, draft_id: str
 ) -> str | None:
-    photos_dir.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(photos_dir.mkdir, parents=True, exist_ok=True)
     for message in messages:
         if not getattr(message, "photo", None):
             continue
@@ -166,16 +164,16 @@ async def build_draft(
             if article:
                 text = clean_text_for_editor(article.text, article.title)
 
-    photo_filename = await _download_first_photo(
-        messages, client, photos_dir, draft_id
-    )
+    photo_filename = await _download_first_photo(messages, client, photos_dir, draft_id)
     if not photo_filename and article and article.image_url:
         try:
             photo_filename = await download_article_image(
                 article.image_url, photos_dir / f"{draft_id}.jpg"
             )
         except ArticleExtractionError as exc:
-            logger.warning("Could not download article image %s: %s", article.image_url, exc)
+            logger.warning(
+                "Could not download article image %s: %s", article.image_url, exc
+            )
     if not photo_filename and preview_photo is not None:
         photo_filename = await _download_telegram_preview_photo(
             preview_photo, client, photos_dir, draft_id

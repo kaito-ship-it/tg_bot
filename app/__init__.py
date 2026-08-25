@@ -1,2 +1,1 @@
-"""Telegram-to-Nedra draft autofill service."""
-
+"""Telegram webhook to Nedra backend publication service."""

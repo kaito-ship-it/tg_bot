@@ -4,12 +4,10 @@
 !.env.example
 !.env.production.example
 
-# Telegram/Playwright authentication
+# Local credential artifacts must never be committed
 *.session
 *.session-*
 *.session-journal
-**/admin_auth.json
-**/storage_state.json
 
 # Runtime data can contain downloaded articles, photos and chat identifiers
 data/*
@@ -26,11 +24,8 @@ __pycache__/
 .coverage
 htmlcov/
 
-# Logs, generated diagnostics and local tools
+# Logs and generated diagnostics
 *.log
-browser_errors/
-playwright-report/
-cloudflared.exe
 
 # Editor/OS files
 .idea/

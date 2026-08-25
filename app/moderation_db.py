@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,6 +15,7 @@ class ModerationPost:
     tg_message_id: int
     source_url: str
     raw_text: str
+    telegram_photo_file_id: str | None
     draft_id: str
     category_id: int | None
     status: str
@@ -21,6 +23,8 @@ class ModerationPost:
     backend_news_id: int | None
     attempts: int
     last_error: str | None
+    created_at: str
+    updated_at: str
 
 
 class ModerationDB:
@@ -52,6 +56,7 @@ class ModerationDB:
                     tg_message_id INTEGER NOT NULL,
                     source_url TEXT NOT NULL,
                     raw_text TEXT NOT NULL,
+                    telegram_photo_file_id TEXT,
                     draft_id TEXT NOT NULL UNIQUE,
                     category_id INTEGER,
                     status TEXT NOT NULL DEFAULT 'new',
@@ -66,6 +71,14 @@ class ModerationDB:
                 CREATE INDEX IF NOT EXISTS idx_posts_status ON posts(status);
                 """
             )
+            columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(posts)").fetchall()
+            }
+            if "telegram_photo_file_id" not in columns:
+                connection.execute(
+                    "ALTER TABLE posts ADD COLUMN telegram_photo_file_id TEXT"
+                )
 
     @staticmethod
     def _row(value: sqlite3.Row | None) -> ModerationPost | None:
@@ -77,11 +90,14 @@ class ModerationDB:
             tg_message_id=int(value["tg_message_id"]),
             source_url=str(value["source_url"]),
             raw_text=str(value["raw_text"]),
+            telegram_photo_file_id=(
+                str(value["telegram_photo_file_id"])
+                if value["telegram_photo_file_id"] is not None
+                else None
+            ),
             draft_id=str(value["draft_id"]),
             category_id=(
-                int(value["category_id"])
-                if value["category_id"] is not None
-                else None
+                int(value["category_id"]) if value["category_id"] is not None else None
             ),
             status=str(value["status"]),
             prompt_message_id=(
@@ -96,10 +112,10 @@ class ModerationDB:
             ),
             attempts=int(value["attempts"]),
             last_error=(
-                str(value["last_error"])
-                if value["last_error"] is not None
-                else None
+                str(value["last_error"]) if value["last_error"] is not None else None
             ),
+            created_at=str(value["created_at"]),
+            updated_at=str(value["updated_at"]),
         )
 
     def enqueue(
@@ -110,16 +126,25 @@ class ModerationDB:
         source_url: str,
         raw_text: str,
         draft_id: str,
+        telegram_photo_file_id: str | None = None,
     ) -> ModerationPost | None:
         with self._connection() as connection:
             try:
                 cursor = connection.execute(
                     """
                     INSERT INTO posts (
-                        tg_chat_id, tg_message_id, source_url, raw_text, draft_id
-                    ) VALUES (?, ?, ?, ?, ?)
+                        tg_chat_id, tg_message_id, source_url, raw_text,
+                        telegram_photo_file_id, draft_id
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (str(chat_id), int(message_id), source_url, raw_text, draft_id),
+                    (
+                        str(chat_id),
+                        int(message_id),
+                        source_url,
+                        raw_text,
+                        telegram_photo_file_id,
+                        draft_id,
+                    ),
                 )
             except sqlite3.IntegrityError:
                 return None
@@ -144,17 +169,58 @@ class ModerationDB:
                 ).fetchone()
             )
 
-    def take(self, status: str, *, limit: int = 5) -> list[ModerationPost]:
+    def claim(
+        self,
+        status: str,
+        active_status: str,
+        *,
+        limit: int = 5,
+        max_attempts: int = 3,
+        stale_minutes: int = 15,
+    ) -> list[ModerationPost]:
+        """Atomically claims jobs and reclaims abandoned jobs after a lease timeout."""
+
         with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             values = connection.execute(
                 """
-                SELECT * FROM posts
-                WHERE status = ? AND attempts < 5
+                SELECT id FROM posts
+                WHERE attempts < ?
+                  AND (
+                    status = ?
+                    OR (
+                      status = ?
+                      AND updated_at <= datetime('now', ?)
+                    )
+                  )
                 ORDER BY id LIMIT ?
                 """,
-                (status, int(limit)),
+                (
+                    int(max_attempts),
+                    status,
+                    active_status,
+                    f"-{int(stale_minutes)} minutes",
+                    int(limit),
+                ),
             ).fetchall()
-        return [row for value in values if (row := self._row(value)) is not None]
+            ids = [int(value["id"]) for value in values]
+            if not ids:
+                return []
+            placeholders = ",".join("?" for _ in ids)
+            connection.execute(
+                f"""
+                UPDATE posts
+                SET status = ?, attempts = attempts + 1,
+                    last_error = NULL, updated_at = datetime('now')
+                WHERE id IN ({placeholders})
+                """,
+                (active_status, *ids),
+            )
+            claimed = connection.execute(
+                f"SELECT * FROM posts WHERE id IN ({placeholders}) ORDER BY id",
+                ids,
+            ).fetchall()
+        return [row for value in claimed if (row := self._row(value)) is not None]
 
     def update(self, post_id: int, **fields: Any) -> ModerationPost | None:
         allowed = {
@@ -183,3 +249,14 @@ class ModerationDB:
                 "SELECT status, COUNT(*) AS count FROM posts GROUP BY status"
             ).fetchall()
         return {str(row["status"]): int(row["count"]) for row in rows}
+
+    def purge_old(self, retention_days: int) -> int:
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                DELETE FROM posts
+                WHERE updated_at <= datetime('now', ?)
+                """,
+                (f"-{int(retention_days)} days",),
+            )
+            return max(0, int(cursor.rowcount))

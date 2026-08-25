@@ -14,7 +14,6 @@ from app.config import Settings
 from app.draft_store import DraftStore
 from app.models import NewsDraft
 
-
 logger = logging.getLogger(__name__)
 _RETRYABLE_STATUSES = {408, 425, 429}
 
@@ -183,7 +182,9 @@ class BackendNewsPublisher:
                 url=str(data["url"]),
             )
         except (KeyError, TypeError, ValueError) as exc:
-            raise BackendAPIError("Backend returned incomplete publication data") from exc
+            raise BackendAPIError(
+                "Backend returned incomplete publication data"
+            ) from exc
 
     def _payload(self, draft: NewsDraft) -> dict[str, Any]:
         if not draft.source_url:
@@ -194,18 +195,23 @@ class BackendNewsPublisher:
         if not category_id:
             raise BackendAPIError("A category must be selected before publication")
 
-        channel_key = self.settings.telegram_channel_id or self.settings.telegram_channel
+        channel_key = self.settings.telegram_channel_id
         if not channel_key:
             raise BackendAPIError("Telegram channel ID is not configured")
 
-        image_url = draft.source_image_url
-        if image_url is None and self.store.photo_path(draft) is not None:
-            public = draft.to_api_dict(self.settings.public_api_base).get("photo_url")
+        image_url = None
+        if self.store.photo_path(draft) is not None:
+            public = draft.to_api_dict(
+                self.settings.public_api_base,
+                self.settings.media_signing_secret,
+            ).get("photo_url")
             public_host = urlparse(public).hostname if isinstance(public, str) else None
-            if (
-                isinstance(public, str)
-                and public_host not in {None, "localhost", "127.0.0.1", "::1"}
-            ):
+            if isinstance(public, str) and public_host not in {
+                None,
+                "localhost",
+                "127.0.0.1",
+                "::1",
+            }:
                 image_url = public
             else:
                 raise BackendAPIError(

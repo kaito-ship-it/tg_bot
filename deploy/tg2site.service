@@ -2,6 +2,8 @@
 Description=Telegram to Nedra news publisher
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -11,16 +13,31 @@ WorkingDirectory=/opt/tg2site
 EnvironmentFile=/opt/tg2site/.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStartPre=/opt/tg2site/.venv/bin/python -m scripts.check_config
 ExecStart=/opt/tg2site/.venv/bin/python -m app.main
-Restart=always
+Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30
-MemoryMax=512M
+MemoryMax=1G
 CPUQuota=50%
+TasksMax=128
+UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
 ReadWritePaths=/var/lib/tg2site
 
 [Install]

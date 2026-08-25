@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.config import DEFAULT_CATEGORY_ID
+
+
+def media_access_token(draft_id: str, secret: str) -> str:
+    return hmac.new(
+        secret.encode("utf-8"),
+        draft_id.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 @dataclass(slots=True)
@@ -39,14 +49,14 @@ class NewsDraft:
         photo_revision: int = 0,
         source_key: str | None = None,
         source_image_url: str | None = None,
-    ) -> "NewsDraft":
+    ) -> NewsDraft:
         return cls(
             draft_id=draft_id,
             title=title,
             text=text,
             category_id=category_id,
             source_message_id=source_message_id,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
             source_url=source_url,
             photo_filename=photo_filename,
             photo_is_generated=photo_is_generated,
@@ -59,15 +69,22 @@ class NewsDraft:
         return asdict(self)
 
     @classmethod
-    def from_storage_dict(cls, value: dict[str, Any]) -> "NewsDraft":
+    def from_storage_dict(cls, value: dict[str, Any]) -> NewsDraft:
         return cls(**value)
 
-    def to_api_dict(self, public_api_base: str) -> dict[str, Any]:
+    def to_api_dict(
+        self,
+        public_api_base: str,
+        media_signing_secret: str,
+    ) -> dict[str, Any]:
         photo_url = None
         if self.photo_filename:
-            photo_url = f"{public_api_base.rstrip('/')}/photo/{self.draft_id}"
+            token = media_access_token(self.draft_id, media_signing_secret)
+            photo_url = (
+                f"{public_api_base.rstrip('/')}/photo/{self.draft_id}?token={token}"
+            )
             if self.photo_revision > 0:
-                photo_url += f"?v={self.photo_revision}"
+                photo_url += f"&v={self.photo_revision}"
         return {
             "title": self.title,
             "text": self.text,

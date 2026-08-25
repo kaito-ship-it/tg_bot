@@ -3,12 +3,11 @@ from __future__ import annotations
 import json
 import os
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app.dedup import normalize_source_url
 from app.models import NewsDraft
-
 
 _DRAFT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
 
@@ -53,8 +52,8 @@ class DraftStore:
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             return None
         if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
-        if datetime.now(timezone.utc) - created_at > self.ttl:
+            created_at = created_at.replace(tzinfo=UTC)
+        if datetime.now(UTC) - created_at > self.ttl:
             self.delete(draft_id)
             return None
         return draft

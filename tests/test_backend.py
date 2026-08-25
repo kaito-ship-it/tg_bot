@@ -22,8 +22,8 @@ def _publisher(tmp_path, *, public_api_base="http://localhost:8000"):
         news_bot_api_base="https://dev.nedra.kz/api/internal",
         news_bot_api_token="secret-token",
         telegram_channel_id="-100123",
-        telegram_channel="@channel",
         public_api_base=public_api_base,
+        media_signing_secret="m" * 40,
     )
     store = DraftStore(tmp_path / "drafts", tmp_path / "photos", 24)
     return BackendNewsPublisher(settings, store), store
@@ -50,7 +50,7 @@ def test_backend_categories_are_loaded_and_cached(tmp_path, monkeypatch) -> None
     assert calls[0][1]["headers"]["Authorization"] == "Bearer secret-token"
 
 
-def test_backend_payload_uses_idempotency_html_and_source_image(tmp_path) -> None:
+def test_backend_payload_uses_idempotency_and_safe_html(tmp_path) -> None:
     publisher, _ = _publisher(tmp_path)
     draft = NewsDraft.create(
         draft_id="a" * 32,
@@ -70,7 +70,9 @@ def test_backend_payload_uses_idempotency_html_and_source_image(tmp_path) -> Non
         "<p>Первый &lt;абзац&gt;</p><p>Второй<br>ряд</p>"
     )
     assert payload["source_name"] == "example.kz"
-    assert payload["image_url"] == "https://cdn.example.kz/photo.jpg"
+    # External image URLs are not delegated to the backend. The parser downloads
+    # a validated copy and only that local copy is exposed through a signed URL.
+    assert payload["image_url"] is None
 
 
 def test_backend_refuses_to_silently_drop_local_photo(tmp_path) -> None:
@@ -89,6 +91,31 @@ def test_backend_refuses_to_silently_drop_local_photo(tmp_path) -> None:
 
     with pytest.raises(BackendAPIError, match="only available locally"):
         publisher._payload(draft)
+
+
+def test_backend_uses_signed_public_photo_url(tmp_path) -> None:
+    publisher, store = _publisher(
+        tmp_path,
+        public_api_base="https://dev.nedra.kz/tg",
+    )
+    draft = NewsDraft.create(
+        draft_id="d" * 32,
+        title="Заголовок",
+        text="Текст",
+        category_id=35,
+        source_message_id=45,
+        source_url="https://example.kz/news/45",
+        photo_filename="photo.jpg",
+    )
+    store.save(draft)
+    (store.photos_dir / "photo.jpg").write_bytes(b"jpg")
+
+    image_url = publisher._payload(draft)["image_url"]
+
+    assert image_url.startswith(
+        f"https://dev.nedra.kz/tg/photo/{draft.draft_id}?token="
+    )
+    assert "m" * 40 not in image_url
 
 
 def test_backend_validation_error_is_not_retryable(tmp_path, monkeypatch) -> None:

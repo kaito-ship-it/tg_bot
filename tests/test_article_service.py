@@ -1,5 +1,5 @@
-from io import BytesIO
 import zipfile
+from io import BytesIO
 
 import pytest
 
@@ -7,11 +7,11 @@ from app.article_service import (
     ArticleExtractionError,
     _extract_docx_text,
     _gov_document_api_details,
+    _validate_public_url,
     extract_first_url,
     is_link_only_post,
     parse_article_html,
     parse_gov_document_payload,
-    _validate_public_url,
 )
 
 
@@ -63,10 +63,7 @@ def test_private_url_is_rejected() -> None:
 
 
 def test_gov_document_url_maps_to_public_api() -> None:
-    url = (
-        "https://www.gov.kz/memleket/entities/mps/documents/details/"
-        "1053929?lang=ru"
-    )
+    url = "https://www.gov.kz/memleket/entities/mps/documents/details/1053929?lang=ru"
     assert _gov_document_api_details(url) == (
         "https://www.gov.kz/api/v1/public/content-manager/documents/1053929",
         "ru",
@@ -89,13 +86,13 @@ def test_parses_gov_document_payload_with_attachment_text() -> None:
 
 
 def test_extracts_text_from_docx_bytes() -> None:
-    document_xml = '''<?xml version="1.0" encoding="UTF-8"?>
+    document_xml = """<?xml version="1.0" encoding="UTF-8"?>
     <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
       <w:body>
         <w:p><w:r><w:t>Первый абзац</w:t></w:r></w:p>
         <w:p><w:r><w:t>Второй абзац о недропользовании</w:t></w:r></w:p>
       </w:body>
-    </w:document>'''.encode("utf-8")
+    </w:document>""".encode()
     output = BytesIO()
     with zipfile.ZipFile(output, "w") as archive:
         archive.writestr("word/document.xml", document_xml)

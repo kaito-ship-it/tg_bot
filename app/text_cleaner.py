@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
-
 ZERO_WIDTH_RE = re.compile(r"[\u200b\u200c\u200d\ufeff]")
 COMPARISON_RE = re.compile(r"[^\w]+", re.UNICODE)
 URL_ONLY_RE = re.compile(r"^https?://\S+$", re.IGNORECASE)
@@ -46,7 +45,9 @@ def _is_noise_line(line: str) -> bool:
     if not URL_ONLY_RE.fullmatch(line):
         return False
     hostname = (urlparse(line).hostname or "").casefold()
-    return any(hostname == host or hostname.endswith("." + host) for host in SOCIAL_HOSTS)
+    return any(
+        hostname == host or hostname.endswith("." + host) for host in SOCIAL_HOSTS
+    )
 
 
 def clean_news_text(text: str, *, title: str | None = None) -> str:

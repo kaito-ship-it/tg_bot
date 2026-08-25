@@ -2,19 +2,16 @@ from __future__ import annotations
 
 import hmac
 import ipaddress
+import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Header, Request, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
 
 from app.config import Settings
 from app.draft_store import DraftStore
-from app.processing_queue import ProcessingQueue
-from app.publication_queue import PublicationQueue
-
+from app.models import media_access_token
 
 TELEGRAM_NETWORKS = (
     ipaddress.ip_network("149.154.160.0/20"),
@@ -22,36 +19,18 @@ TELEGRAM_NETWORKS = (
 )
 
 
-class PublicationResult(BaseModel):
-    token: str = Field(min_length=20, max_length=200)
-    success: bool
-    error: str | None = Field(default=None, max_length=2000)
-
-
 def create_app(
     store: DraftStore,
     settings: Settings,
-    queue: ProcessingQueue | None = None,
-    publication_queue: PublicationQueue | None = None,
+    *,
     webhook_handler: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     webhook_stats: Callable[[], dict[str, int]] | None = None,
 ) -> FastAPI:
-    app = FastAPI(title="tg2site draft API", docs_url=None, redoc_url=None)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=list(settings.cors_origins),
-        allow_credentials=False,
-        allow_methods=["GET", "POST"],
-        allow_headers=["*"],
-    )
+    app = FastAPI(title="tg2site", docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.get("/health")
     def health() -> dict[str, object]:
         result: dict[str, object] = {"status": "ok"}
-        if queue is not None:
-            result["queue"] = queue.stats()
-        if publication_queue is not None:
-            result["publication_queue"] = publication_queue.stats()
         if webhook_stats is not None:
             result["moderation_queue"] = webhook_stats()
         return result
@@ -78,47 +57,41 @@ def create_app(
                     return Response(status_code=403)
                 if not any(client_ip in network for network in TELEGRAM_NETWORKS):
                     return Response(status_code=403)
-            payload = await request.json()
+
+            content_length = request.headers.get("content-length")
+            if (
+                content_length
+                and content_length.isdigit()
+                and int(content_length) > settings.webhook_max_body_bytes
+            ):
+                return Response(status_code=413)
+            body = await request.body()
+            if len(body) > settings.webhook_max_body_bytes:
+                return Response(status_code=413)
+            try:
+                payload = json.loads(body)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                return Response(status_code=400)
             if not isinstance(payload, dict):
                 return Response(status_code=400)
             await webhook_handler(payload)
             return Response(status_code=200)
 
-    @app.get("/draft/{draft_id}")
-    def get_draft(draft_id: str) -> dict[str, object]:
-        draft = store.get(draft_id)
-        if draft is None:
-            raise HTTPException(status_code=404, detail="Draft not found or expired")
-        return draft.to_api_dict(settings.public_api_base)
-
     @app.get("/photo/{draft_id}")
-    def get_photo(draft_id: str) -> FileResponse:
+    def get_photo(draft_id: str, token: str = "") -> Response:
+        expected = media_access_token(draft_id, settings.media_signing_secret)
+        if not hmac.compare_digest(token, expected):
+            return Response(status_code=404)
         draft = store.get(draft_id)
         if draft is None:
-            raise HTTPException(status_code=404, detail="Draft not found or expired")
+            return Response(status_code=404)
         photo_path = store.photo_path(draft)
         if photo_path is None:
-            raise HTTPException(status_code=404, detail="Photo not found")
+            return Response(status_code=404)
         return FileResponse(
             photo_path,
             filename=photo_path.name,
-            headers={"Access-Control-Allow-Origin": "*"},
+            headers={"Cache-Control": "private, max-age=300"},
         )
-
-    @app.post("/publication/{draft_id}/result")
-    def report_publication_result(
-        draft_id: str, result: PublicationResult
-    ) -> dict[str, str]:
-        if publication_queue is None:
-            raise HTTPException(status_code=404, detail="Auto-publication is disabled")
-        job = publication_queue.report_result(
-            draft_id,
-            result.token,
-            success=result.success,
-            error=result.error,
-        )
-        if job is None:
-            raise HTTPException(status_code=403, detail="Invalid publication token")
-        return {"status": job.status}
 
     return app
