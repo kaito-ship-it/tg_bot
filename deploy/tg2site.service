@@ -1,0 +1,27 @@
+[Unit]
+Description=Telegram to Nedra news publisher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tg2site
+Group=tg2site
+WorkingDirectory=/opt/tg2site
+EnvironmentFile=/opt/tg2site/.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/tg2site/.venv/bin/python -m app.main
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+MemoryMax=512M
+CPUQuota=50%
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/tg2site
+
+[Install]
+WantedBy=multi-user.target

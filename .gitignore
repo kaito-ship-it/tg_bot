@@ -1,0 +1,39 @@
+# Secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Telegram/Playwright authentication
+*.session
+*.session-*
+*.session-journal
+**/admin_auth.json
+**/storage_state.json
+
+# Runtime data can contain downloaded articles, photos and chat identifiers
+data/*
+!data/.gitkeep
+
+# Local Python environments and caches
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.py[cod]
+.coverage
+htmlcov/
+
+# Logs, generated diagnostics and local tools
+*.log
+browser_errors/
+playwright-report/
+cloudflared.exe
+
+# Editor/OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
