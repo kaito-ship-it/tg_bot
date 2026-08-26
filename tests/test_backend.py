@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.backend import BackendAPIError, BackendNewsPublisher, NewsCategory
+from app.backend import BackendAPIError, BackendNewsPublisher, NewsCategory, _lead
 from app.draft_store import DraftStore
 from app.models import NewsDraft
 
@@ -73,6 +73,29 @@ def test_backend_payload_uses_idempotency_and_safe_html(tmp_path) -> None:
     # External image URLs are not delegated to the backend. The parser downloads
     # a validated copy and only that local copy is exposed through a signed URL.
     assert payload["image_url"] is None
+
+
+def test_backend_lead_contains_only_first_sentence() -> None:
+    text = (
+        "Первое предложение кратко описывает новость. "
+        "Второе предложение уже содержит подробности."
+    )
+
+    assert _lead(text) == "Первое предложение кратко описывает новость."
+
+
+def test_backend_lead_normalizes_whitespace_and_closing_quote() -> None:
+    text = "  Власти сообщили: \u00abРешение принято!\u00bb\n\nДалее идут подробности.  "
+
+    assert _lead(text) == "Власти сообщили: \u00abРешение принято!\u00bb"
+
+
+def test_backend_lead_limits_unfinished_long_text() -> None:
+    lead = _lead("слово " * 100)
+
+    assert lead is not None
+    assert len(lead) <= 300
+    assert lead.endswith("…")
 
 
 def test_backend_refuses_to_silently_drop_local_photo(tmp_path) -> None:

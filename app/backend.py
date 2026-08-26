@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -16,6 +17,11 @@ from app.models import NewsDraft
 
 logger = logging.getLogger(__name__)
 _RETRYABLE_STATUSES = {408, 425, 429}
+_LEAD_MAX_LENGTH = 300
+_FIRST_SENTENCE_RE = re.compile(
+    r'^(.+?[.!?…](?:["\'\u00bb”’)\]]*))(?=\s|$)',
+    re.DOTALL,
+)
 
 
 class BackendAPIError(RuntimeError):
@@ -50,11 +56,19 @@ def _content_html(text: str) -> str:
 
 
 def _lead(text: str) -> str | None:
-    for paragraph in text.split("\n\n"):
-        value = " ".join(paragraph.split())
-        if value:
-            return value[:1000]
-    return None
+    value = " ".join(text.split())
+    if not value:
+        return None
+
+    match = _FIRST_SENTENCE_RE.match(value)
+    sentence = match.group(1) if match else value
+    if len(sentence) <= _LEAD_MAX_LENGTH:
+        return sentence
+
+    shortened = sentence[: _LEAD_MAX_LENGTH - 1].rstrip()
+    if " " in shortened:
+        shortened = shortened.rsplit(" ", 1)[0]
+    return shortened.rstrip(".,;:-") + "…"
 
 
 class BackendNewsPublisher:
