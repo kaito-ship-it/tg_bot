@@ -4,4 +4,4 @@ requests==2.34.2
 python-dotenv==1.2.3
 trafilatura==2.2.0
 Pillow==12.3.0
-pypdf==6.16.2
+pypdf==6.17.0
